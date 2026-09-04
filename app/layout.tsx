@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'AI 기반 작업 일정 최적화',
-  description: '기상 조건과 작업 정보를 분석해 하루 작업 일정을 추천하는 웹 도구',
+  title: '현장 작업 공수 및 일정 관리',
+  description: '현장직 공수와 기상 조건을 기준으로 하루 작업 일정을 조정하는 웹 도구',
 };
 
 export default function RootLayout({
