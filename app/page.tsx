@@ -199,11 +199,11 @@ function createSchedule(tasks: Task[], totalCrew: number) {
   return schedule.sort((a, b) => a.slot.time.localeCompare(b.slot.time));
 }
 
-function decisionClass(decision: Decision) {
-  if (decision === '진행') return 'text-[#16794c]';
-  if (decision === '주의') return 'text-[#946200]';
-  if (decision === '내부 우선') return 'text-[#c75d12]';
-  return 'text-[#b42318]';
+function decisionTone(decision: Decision) {
+  if (decision === '진행') return 'tone-go';
+  if (decision === '주의') return 'tone-watch';
+  if (decision === '내부 우선') return 'tone-inside';
+  return 'tone-stop';
 }
 
 function priorityLabel(priority: number) {
@@ -223,6 +223,12 @@ export default function Home() {
   const outsideBlocked = schedule.filter(
     (item) => item.task.location === 'outside' && item.decision !== '진행',
   ).length;
+  const firstOutsideSlot = schedule.find(
+    (item) => item.task.location === 'outside' && item.decision === '진행',
+  );
+  const hottestSlot = weatherSlots.reduce((max, slot) =>
+    slot.feelsLike > max.feelsLike ? slot : max,
+  );
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -249,47 +255,79 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f5f3ef] text-[#171717]">
-      <header className="border-b border-black/10 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5 md:px-8">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#f15b2a]">
-              Field Workforce Scheduler
-            </p>
-            <h1 className="mt-1 text-xl font-semibold md:text-2xl">
-              현장 작업 공수 및 일정 관리
-            </h1>
-          </div>
-          <div className="hidden items-center gap-7 text-sm font-medium text-black/60 md:flex">
-            <span>공수 관리</span>
-            <span>작업 판단</span>
-            <span>일정 전달</span>
-          </div>
-        </div>
+    <main className="site-shell">
+      <header className="global-header">
+        <a className="brand" href="#top" aria-label="Hanwha field scheduler">
+          <img src="/hanwha-logo.jpg" alt="Hanwha" />
+        </a>
+        <nav className="global-nav" aria-label="주요 화면">
+          <a href="#crew">공수</a>
+          <a href="#dispatch">일정</a>
+          <a href="#weather">기상</a>
+        </nav>
+        <a className="hub-link" href="#dispatch">오늘 일정 보기</a>
       </header>
 
-      <section className="border-b border-black/10 bg-[#202124] text-white">
-        <div className="mx-auto grid max-w-7xl gap-8 px-5 py-12 md:grid-cols-[1.08fr_0.92fr] md:px-8 md:py-16">
-          <div>
-            <p className="text-sm font-semibold text-[#f15b2a]">
-              체감온도 35도와 강수 여부를 기준으로 작업 순서를 조정합니다
-            </p>
-            <h2 className="mt-4 max-w-3xl text-4xl font-semibold leading-tight md:text-6xl">
-              오늘 투입할 인원과 작업 가능 시간을 한 화면에서 결정합니다.
-            </h2>
+      <section className="hero" id="top">
+        <div className="hero-copy">
+          <p className="kicker">FIELD WORKFORCE CONTROL</p>
+          <h1>
+            현장 공수와 날씨를 보고
+            <span>오늘 작업 순서를 결정합니다.</span>
+          </h1>
+          <p>
+            10~12명 규모의 현장직 투입 인원, 외부/내부 작업 구분, 체감온도 35도 기준,
+            강수 여부를 함께 판단해 현장에 전달할 작업 순서를 만듭니다.
+          </p>
+        </div>
+
+        <div className="hero-board" aria-label="오늘 작업 요약">
+          <div className="hero-board-head">
+            <span>LIVE PLAN</span>
+            <b>{schedule.length} WORKS</b>
           </div>
-          <div className="self-end border-l border-white/20 pl-6 text-sm leading-7 text-white/72">
-            외부 작업은 체감온도와 비의 영향을 먼저 보고, 위험한 시간대에는 내부 작업을 우선 배치합니다.
-            10~12명 규모의 현장직 공수를 기준으로 작업별 필요 인원과 남는 인원도 함께 계산합니다.
+          <div className="hero-metrics">
+            <div>
+              <span>가능 인원</span>
+              <strong>{totalCrew}</strong>
+              <small>명</small>
+            </div>
+            <div>
+              <span>외부 주의</span>
+              <strong>{outsideBlocked}</strong>
+              <small>건</small>
+            </div>
+            <div>
+              <span>최고 체감</span>
+              <strong>{hottestSlot.feelsLike}</strong>
+              <small>도</small>
+            </div>
+          </div>
+          <div className="hero-alert">
+            <span />
+            {firstOutsideSlot
+              ? `${firstOutsideSlot.slot.time}부터 외부 작업 진행 가능`
+              : '외부 작업은 내부 작업 이후 재검토'}
           </div>
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-5 px-5 py-6 md:grid-cols-[360px_1fr_320px] md:px-8">
-        <aside className="space-y-5">
-          <section className="border border-black/10 bg-white p-5">
-            <h3 className="text-lg font-semibold">현장 인원</h3>
-            <label className="mt-4 block text-sm font-medium">
+      <section className="workspace" id="crew">
+        <div className="section-heading">
+          <p>01 / CONTROL</p>
+          <h2>
+            공수와 작업을
+            <span>먼저 입력합니다.</span>
+          </h2>
+        </div>
+
+        <div className="control-grid">
+          <aside className="crew-panel">
+            <div className="panel-head">
+              <span>CREW</span>
+              <b>10~12명 기준</b>
+            </div>
+            <label className="field">
               작업 가능 인원
               <input
                 type="number"
@@ -297,73 +335,66 @@ export default function Home() {
                 max={20}
                 value={totalCrew}
                 onChange={(event) => setTotalCrew(Number(event.target.value))}
-                className="mt-2 w-full border border-black/15 px-3 py-2.5 outline-none focus:border-[#f15b2a]"
               />
             </label>
-            <div className="mt-5 grid grid-cols-3 gap-2 text-center text-sm">
-              <div className="border border-black/10 p-3">
-                <p className="text-black/45">총원</p>
-                <p className="mt-1 text-xl font-semibold">{totalCrew}</p>
+            <div className="crew-stats">
+              <div>
+                <span>총원</span>
+                <strong>{totalCrew}</strong>
               </div>
-              <div className="border border-black/10 p-3">
-                <p className="text-black/45">작업</p>
-                <p className="mt-1 text-xl font-semibold">{tasks.length}</p>
+              <div>
+                <span>등록 작업</span>
+                <strong>{tasks.length}</strong>
               </div>
-              <div className="border border-black/10 p-3">
-                <p className="text-black/45">주의</p>
-                <p className="mt-1 text-xl font-semibold">{outsideBlocked}</p>
+              <div>
+                <span>누적 투입</span>
+                <strong>{assignedCrew}</strong>
               </div>
             </div>
-          </section>
+          </aside>
 
-          <form onSubmit={handleSubmit} className="border border-black/10 bg-white p-5">
-            <div className="mb-5 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">작업 입력</h3>
-              <span className="text-sm text-black/50">{tasks.length}개 작업</span>
+          <form className="task-form" onSubmit={handleSubmit}>
+            <div className="panel-head">
+              <span>ADD WORK</span>
+              <b>작업 등록</b>
             </div>
 
-            <label className="block text-sm font-medium">
-              작업명
-              <input
-                value={form.name}
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
-                className="mt-2 w-full border border-black/15 px-3 py-2.5 outline-none focus:border-[#f15b2a]"
-                placeholder="예: 외부 설비 점검"
-              />
-            </label>
-
-            <label className="mt-4 block text-sm font-medium">
-              설비명 또는 대상
-              <input
-                value={form.target}
-                onChange={(event) => setForm({ ...form, target: event.target.value })}
-                className="mt-2 w-full border border-black/15 px-3 py-2.5 outline-none focus:border-[#f15b2a]"
-                placeholder="예: 공조 설비"
-              />
-            </label>
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <label className="block text-sm font-medium">
+            <div className="form-grid">
+              <label className="field">
+                작업명
+                <input
+                  value={form.name}
+                  onChange={(event) => setForm({ ...form, name: event.target.value })}
+                  placeholder="예: 외부 설비 점검"
+                />
+              </label>
+              <label className="field">
+                설비명 또는 대상
+                <input
+                  value={form.target}
+                  onChange={(event) => setForm({ ...form, target: event.target.value })}
+                  placeholder="예: 공조 설비"
+                />
+              </label>
+              <label className="field">
                 장소
                 <select
                   value={form.location}
                   onChange={(event) =>
                     setForm({ ...form, location: event.target.value as LocationType })
                   }
-                  className="mt-2 w-full border border-black/15 bg-white px-3 py-2.5 outline-none focus:border-[#f15b2a]"
                 >
                   <option value="outside">외부</option>
                   <option value="inside">내부</option>
                 </select>
               </label>
-              <label className="block text-sm font-medium">
+              <label className="field">
                 필요 인원
                 <select
                   value={form.requiredCrew}
                   onChange={(event) =>
                     setForm({ ...form, requiredCrew: Number(event.target.value) })
                   }
-                  className="mt-2 w-full border border-black/15 bg-white px-3 py-2.5 outline-none focus:border-[#f15b2a]"
                 >
                   {[1, 2, 3, 4, 5, 6].map((count) => (
                     <option key={count} value={count}>
@@ -372,27 +403,22 @@ export default function Home() {
                   ))}
                 </select>
               </label>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <label className="block text-sm font-medium">
+              <label className="field">
                 소요 시간
                 <select
                   value={form.duration}
                   onChange={(event) => setForm({ ...form, duration: Number(event.target.value) })}
-                  className="mt-2 w-full border border-black/15 bg-white px-3 py-2.5 outline-none focus:border-[#f15b2a]"
                 >
                   <option value={1}>1시간</option>
                   <option value={2}>2시간</option>
                   <option value={3}>3시간</option>
                 </select>
               </label>
-              <label className="block text-sm font-medium">
+              <label className="field">
                 우선순위
                 <select
                   value={form.priority}
                   onChange={(event) => setForm({ ...form, priority: Number(event.target.value) })}
-                  className="mt-2 w-full border border-black/15 bg-white px-3 py-2.5 outline-none focus:border-[#f15b2a]"
                 >
                   <option value={1}>높음</option>
                   <option value={2}>보통</option>
@@ -401,156 +427,185 @@ export default function Home() {
               </label>
             </div>
 
-            <label className="mt-4 block text-sm font-medium">
+            <label className="field full">
               작업 내용
               <textarea
                 value={form.detail}
                 onChange={(event) => setForm({ ...form, detail: event.target.value })}
-                className="mt-2 min-h-20 w-full resize-none border border-black/15 px-3 py-2.5 outline-none focus:border-[#f15b2a]"
                 placeholder="작업 내용과 주의 사항"
               />
             </label>
 
-            <button className="mt-5 w-full bg-[#f15b2a] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#d9491d]">
-              작업 추가
-            </button>
+            <button className="primary-action">작업 추가</button>
           </form>
-        </aside>
+        </div>
+      </section>
 
-        <section className="border border-black/10 bg-white">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 px-5 py-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-black/45">
-                Daily Dispatch
-              </p>
-              <h3 className="mt-1 text-xl font-semibold">현장직 전달용 작업 일정</h3>
+      <section className="dispatch-section" id="dispatch">
+        <div className="section-heading compact">
+          <p>02 / DISPATCH</p>
+          <h2>
+            현장직에게 전달할
+            <span>작업 순서입니다.</span>
+          </h2>
+        </div>
+
+        <div className="dispatch-layout">
+          <section className="dispatch-panel">
+            <div className="panel-head dark">
+              <span>TODAY PLAN</span>
+              <b>행 기반 작업 패널</b>
             </div>
-            <span className="bg-[#202124] px-3 py-1.5 text-sm font-semibold text-white">
-              누적 투입 {assignedCrew}명
-            </span>
-          </div>
 
-          <div className="divide-y divide-black/10">
-            {schedule.map((item) => (
-              <button
-                key={item.task.id}
-                onClick={() => setSelectedId(item.task.id)}
-                className={`grid w-full gap-4 px-5 py-4 text-left transition md:grid-cols-[120px_1fr_112px] ${
-                  selected?.task.id === item.task.id ? 'bg-[#fff7f2]' : 'bg-white hover:bg-black/[0.03]'
-                }`}
-              >
-                <div>
-                  <p className="text-xl font-semibold">{item.slot.time}</p>
-                  <p className="text-sm text-black/50">{item.endTime} 종료</p>
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="text-lg font-semibold">{item.task.name}</h4>
-                    <span className="border border-black/15 px-2 py-1 text-xs">
-                      {item.task.location === 'outside' ? '외부' : '내부'}
-                    </span>
-                    <span className="border border-black/15 px-2 py-1 text-xs">
-                      {item.task.requiredCrew}명 투입
-                    </span>
+            <div className="dispatch-header-row">
+              <span>순번</span>
+              <span>시간</span>
+              <span>작업 정보</span>
+              <span>공수</span>
+              <span>기상</span>
+              <span>판단</span>
+            </div>
+
+            <div className="dispatch-row-list">
+              {schedule.map((item, index) => (
+                <button
+                  key={item.task.id}
+                  className={`dispatch-row ${selected?.task.id === item.task.id ? 'is-selected' : ''}`}
+                  onClick={() => setSelectedId(item.task.id)}
+                >
+                  <span className="dispatch-index">{String(index + 1).padStart(2, '0')}</span>
+
+                  <div className="dispatch-time">
+                    <strong>{item.slot.time}</strong>
+                    <small>{item.endTime} 종료</small>
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-black/62">{item.reason}</p>
-                </div>
-                <div className="md:text-right">
-                  <p className={`text-sm font-semibold ${decisionClass(item.decision)}`}>
-                    {item.decision}
-                  </p>
-                  <p className="mt-1 text-sm text-black/50">남는 인원</p>
-                  <p className="text-2xl font-semibold">{Math.max(0, item.remainingCrew)}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
 
-        <aside className="space-y-5">
-          <section className="border border-black/10 bg-white p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-black/45">
-              Weather Standard
-            </p>
-            <h3 className="mt-1 text-lg font-semibold">기상 판단 기준</h3>
-            <div className="mt-4 space-y-3 text-sm">
-              <div className="flex justify-between border-t border-black/10 pt-3">
-                <span className="text-black/55">체감온도</span>
-                <strong>35도 이상 주의</strong>
-              </div>
-              <div className="flex justify-between border-t border-black/10 pt-3">
-                <span className="text-black/55">비 예보</span>
-                <strong>내부 작업 우선</strong>
-              </div>
-              <div className="flex justify-between border-t border-black/10 pt-3">
-                <span className="text-black/55">외부 작업</span>
-                <strong>날씨 영향 큼</strong>
-              </div>
-            </div>
-          </section>
-
-          <section className="border border-black/10 bg-white p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-black/45">
-              Forecast
-            </p>
-            <h3 className="mt-1 text-lg font-semibold">시간대별 기상</h3>
-            <div className="mt-4 space-y-3">
-              {weatherSlots.map((slot) => (
-                <div key={slot.time} className="grid grid-cols-[54px_1fr_auto] items-center gap-3">
-                  <span className="text-sm font-semibold">{slot.time}</span>
-                  <div>
-                    <div className="h-2 bg-black/10">
-                      <div
-                        className={`h-2 ${slot.feelsLike >= 35 ? 'bg-[#b42318]' : 'bg-[#f15b2a]'}`}
-                        style={{ width: `${Math.min(100, slot.feelsLike * 2.3)}%` }}
-                      />
+                  <div className="dispatch-work">
+                    <div className="work-title-line">
+                      <strong>{item.task.name}</strong>
+                      <span>{item.task.location === 'outside' ? '외부' : '내부'}</span>
                     </div>
-                    <p className="mt-1 text-xs text-black/45">
-                      비 {slot.rain}mm · 바람 {slot.wind}m/s
-                    </p>
+                    <small>{item.task.target}</small>
+                    <p>{item.reason}</p>
                   </div>
-                  <span className="text-sm text-black/60">{slot.feelsLike}도</span>
-                </div>
+
+                  <div className="dispatch-crew">
+                    <strong>{item.task.requiredCrew}명</strong>
+                    <small>남는 인원 {Math.max(0, item.remainingCrew)}명</small>
+                  </div>
+
+                  <div className="dispatch-weather">
+                    <strong>{item.slot.feelsLike}도</strong>
+                    <small>비 {item.slot.rain}mm · 바람 {item.slot.wind}m/s</small>
+                  </div>
+
+                  <div className="dispatch-decision">
+                    <b className={decisionTone(item.decision)}>{item.decision}</b>
+                    <small>위험 {item.riskScore}</small>
+                  </div>
+                </button>
               ))}
             </div>
           </section>
 
-          {selected ? (
-            <section className="border border-black/10 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-black/45">
-                Selected Work
-              </p>
-              <h3 className="mt-1 text-lg font-semibold">{selected.task.name}</h3>
-              <p className="mt-3 text-sm leading-6 text-black/62">{selected.task.detail}</p>
-              <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
-                <div className="border-t border-black/10 pt-3">
-                  <dt className="text-black/45">대상</dt>
-                  <dd className="mt-1 font-semibold">{selected.task.target}</dd>
+          <aside className="detail-stack">
+            <section className="selected-card">
+              <div className="panel-head">
+                <span>SELECTED WORK</span>
+                <b>{selected ? priorityLabel(selected.task.priority) : '-'}</b>
+              </div>
+              {selected ? (
+                <>
+                  <h3>{selected.task.name}</h3>
+                  <p>{selected.task.detail}</p>
+                  <dl>
+                    <div>
+                      <dt>작업 장소</dt>
+                      <dd>{selected.task.location === 'outside' ? '외부' : '내부'}</dd>
+                    </div>
+                    <div>
+                      <dt>필요 인원</dt>
+                      <dd>{selected.task.requiredCrew}명</dd>
+                    </div>
+                    <div>
+                      <dt>남는 인원</dt>
+                      <dd>{Math.max(0, selected.remainingCrew)}명</dd>
+                    </div>
+                    <div>
+                      <dt>위험 점수</dt>
+                      <dd>{selected.riskScore}</dd>
+                    </div>
+                  </dl>
+                  <button className="secondary-action" onClick={() => removeTask(selected.task.id)}>
+                    선택 작업 삭제
+                  </button>
+                </>
+              ) : (
+                <p>등록된 작업이 없습니다.</p>
+              )}
+            </section>
+
+            <section className="rule-card">
+              <div className="panel-head">
+                <span>STANDARD</span>
+                <b>판단 기준</b>
+              </div>
+              <ul>
+                <li>
+                  <span>체감온도</span>
+                  <strong>35도 이상 주의</strong>
+                </li>
+                <li>
+                  <span>강수 발생</span>
+                  <strong>내부 작업 우선</strong>
+                </li>
+                <li>
+                  <span>외부 작업</span>
+                  <strong>시간대 재배치</strong>
+                </li>
+              </ul>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section className="weather-section" id="weather">
+        <div className="section-heading compact">
+          <p>03 / WEATHER</p>
+          <h2>
+            시간대별 기상 조건을
+            <span>작업 판단에 반영합니다.</span>
+          </h2>
+        </div>
+
+        <div className="weather-grid">
+          {weatherSlots.map((slot) => (
+            <article key={slot.time} className="weather-card">
+              <div>
+                <span>{slot.time}</span>
+                <strong>{slot.feelsLike}도</strong>
+              </div>
+              <p>체감온도</p>
+              <div className="weather-bar">
+                <i style={{ width: `${Math.min(100, slot.feelsLike * 2.3)}%` }} />
+              </div>
+              <dl>
+                <div>
+                  <dt>강수</dt>
+                  <dd>{slot.rain}mm</dd>
                 </div>
-                <div className="border-t border-black/10 pt-3">
-                  <dt className="text-black/45">우선순위</dt>
-                  <dd className="mt-1 font-semibold">{priorityLabel(selected.task.priority)}</dd>
+                <div>
+                  <dt>풍속</dt>
+                  <dd>{slot.wind}m/s</dd>
                 </div>
-                <div className="border-t border-black/10 pt-3">
-                  <dt className="text-black/45">필요 인원</dt>
-                  <dd className="mt-1 font-semibold">{selected.task.requiredCrew}명</dd>
-                </div>
-                <div className="border-t border-black/10 pt-3">
-                  <dt className="text-black/45">판단</dt>
-                  <dd className={`mt-1 font-semibold ${decisionClass(selected.decision)}`}>
-                    {selected.decision}
-                  </dd>
+                <div>
+                  <dt>습도</dt>
+                  <dd>{slot.humidity}%</dd>
                 </div>
               </dl>
-              <button
-                onClick={() => removeTask(selected.task.id)}
-                className="mt-5 w-full border border-black/15 px-4 py-2.5 text-sm font-semibold transition hover:border-[#f15b2a] hover:text-[#f15b2a]"
-              >
-                선택 작업 삭제
-              </button>
-            </section>
-          ) : null}
-        </aside>
+            </article>
+          ))}
+        </div>
       </section>
     </main>
   );
