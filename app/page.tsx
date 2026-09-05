@@ -4,12 +4,10 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 type LocationType = 'outside' | 'inside';
 type Decision = '진행' | '주의' | '내부 우선' | '중단 검토';
-type Skill = 'mechanical' | 'electrical' | 'general';
 
 type Worker = {
   id: number;
   name: string;
-  skill: Skill;
   level: number;
 };
 
@@ -22,7 +20,6 @@ type Task = {
   requiredCrew: number;
   priority: number;
   detail: string;
-  skill: Skill;
   minSkill: number;
 };
 
@@ -69,7 +66,6 @@ const initialTasks: Task[] = [
     requiredCrew: 4,
     priority: 1,
     detail: '외부 설비 상태 확인, 이상음 및 누수 여부 점검',
-    skill: 'mechanical',
     minSkill: 3,
   },
   {
@@ -81,7 +77,6 @@ const initialTasks: Task[] = [
     requiredCrew: 3,
     priority: 1,
     detail: '장비 분리 후 원인 확인이 필요한 외부 보수 작업',
-    skill: 'mechanical',
     minSkill: 3,
   },
   {
@@ -93,7 +88,6 @@ const initialTasks: Task[] = [
     requiredCrew: 3,
     priority: 2,
     detail: '분전반, 배선, 차단기 상태 점검',
-    skill: 'electrical',
     minSkill: 3,
   },
   {
@@ -105,18 +99,25 @@ const initialTasks: Task[] = [
     requiredCrew: 2,
     priority: 3,
     detail: '자재 재고 확인, 점검 결과 정리, 다음 작업 준비',
-    skill: 'general',
     minSkill: 1,
+  },
+  {
+    id: 5,
+    name: '배관 교체 및 압력 시험',
+    target: '냉각수 배관 구간',
+    location: 'outside',
+    duration: 3,
+    requiredCrew: 5,
+    priority: 2,
+    detail: '노후 배관 교체 후 누수 여부와 압력 유지 상태를 확인하는 대규모 외부 작업',
+    minSkill: 4,
   },
 ];
 
 const initialWorkforce: Worker[] = [
-  { id: 1, name: '김현우', skill: 'mechanical', level: 5 }, { id: 2, name: '박서준', skill: 'mechanical', level: 5 },
-  { id: 3, name: '최민석', skill: 'mechanical', level: 4 }, { id: 4, name: '정우진', skill: 'mechanical', level: 3 },
-  { id: 5, name: '이은지', skill: 'electrical', level: 5 }, { id: 6, name: '한지민', skill: 'electrical', level: 4 },
-  { id: 7, name: '오세훈', skill: 'electrical', level: 3 }, { id: 8, name: '윤서연', skill: 'general', level: 4 },
-  { id: 9, name: '김도윤', skill: 'general', level: 4 }, { id: 10, name: '문지후', skill: 'general', level: 3 },
-  { id: 11, name: '배수빈', skill: 'general', level: 3 }, { id: 12, name: '임하늘', skill: 'general', level: 2 },
+  { id: 1, name: '송민혁', level: 5 }, { id: 2, name: '길형준', level: 5 }, { id: 3, name: '김동훈', level: 4 }, { id: 4, name: '민경원', level: 3 },
+  { id: 5, name: '윤호진', level: 5 }, { id: 6, name: '조예진', level: 4 }, { id: 7, name: '오세훈', level: 3 }, { id: 8, name: '윤서연', level: 4 },
+  { id: 9, name: '김도윤', level: 4 }, { id: 10, name: '문지후', level: 3 }, { id: 11, name: '배수빈', level: 3 }, { id: 12, name: '임하늘', level: 2 },
 ];
 
 const previewWeatherSlots: WeatherSlot[] = [
@@ -137,7 +138,6 @@ const emptyTask = {
   requiredCrew: 2,
   priority: 2,
   detail: '',
-  skill: 'general' as Skill,
   minSkill: 1,
 };
 
@@ -225,7 +225,7 @@ function createSchedule(tasks: Task[], totalCrew: number, weatherSlots: WeatherS
       const end = start + task.duration * 60;
       return activeWorkers.filter((worker) => {
         const overlaps = (bookings.get(worker.id) ?? []).some((booking) => start < booking.end && end > booking.start);
-        return !overlaps && (worker.skill === task.skill || task.skill === 'general') && worker.level >= task.minSkill;
+        return !overlaps && worker.level >= task.minSkill;
       }).length >= task.requiredCrew;
     }) ?? ranked[0];
     const start = timeToMinutes(selected.slot.time);
@@ -233,7 +233,7 @@ function createSchedule(tasks: Task[], totalCrew: number, weatherSlots: WeatherS
     const assignedWorkers = activeWorkers
       .filter((worker) => {
         const overlaps = (bookings.get(worker.id) ?? []).some((booking) => start < booking.end && end > booking.start);
-        return !overlaps && (worker.skill === task.skill || task.skill === 'general') && worker.level >= task.minSkill;
+        return !overlaps && worker.level >= task.minSkill;
       })
       .sort((a, b) => b.level - a.level)
       .slice(0, task.requiredCrew);
@@ -257,7 +257,7 @@ function createSchedule(tasks: Task[], totalCrew: number, weatherSlots: WeatherS
       remainingCrew,
       reason:
         !hasQualifiedCrew || task.requiredCrew > totalCrew
-          ? `${task.skill === 'mechanical' ? '기계 정비' : task.skill === 'electrical' ? '전기 설비' : '일반 작업'} 숙련도 ${task.minSkill} 이상 인력이 ${task.requiredCrew}명 확보되지 않아 인력 조정이 필요합니다.`
+          ? `작업 역량 ${task.minSkill} 이상 인력이 ${task.requiredCrew}명 확보되지 않아 인력 조정이 필요합니다.`
           : makeReason(task, selected.slot, selected.decision),
       assignedWorkers,
     });
@@ -359,7 +359,6 @@ export default function Home() {
       .sort((a, b) => a.slot.time.localeCompare(b.slot.time));
   }, [aiAnalysis, ruleSchedule, weatherSlots, workers]);
   const selected = schedule.find((item) => item.task.id === selectedId) ?? schedule[0];
-  const assignedCrew = schedule.reduce((sum, item) => sum + item.task.requiredCrew, 0);
   const outsideBlocked = schedule.filter(
     (item) => item.task.location === 'outside' && item.decision !== '진행',
   ).length;
@@ -450,7 +449,6 @@ export default function Home() {
       requiredCrew: Number(form.requiredCrew),
       priority: Number(form.priority),
       detail: form.detail.trim() || '상세 내용 없음',
-      skill: form.skill,
       minSkill: Number(form.minSkill),
     };
 
@@ -476,12 +474,10 @@ export default function Home() {
           <a href="#dispatch">작업 일정</a>
           <a href="#weather">기상 예보</a>
         </nav>
-        <a className="hub-link" href="#dispatch">내일 일정 보기</a>
       </header>
 
       <section className="hero" id="top">
         <div className="hero-copy">
-          <p className="kicker">FIELD WORKFORCE CONTROL</p>
           <h1>
             현장 공수와 날씨를 보고
             <span>내일 작업 순서를 결정합니다.</span>
@@ -494,8 +490,8 @@ export default function Home() {
 
         <div className="hero-board" aria-label="내일 작업 요약">
           <div className="hero-board-head">
-            <span>TOMORROW PLAN · {planDateLabel}</span>
-            <b>{schedule.length} WORKS</b>
+            <span>내일 작업 계획 · {planDateLabel}</span>
+            <b>작업 {schedule.length}개</b>
           </div>
           <div className="hero-metrics">
             <div>
@@ -525,7 +521,7 @@ export default function Home() {
 
       <section className="workspace" id="crew">
         <div className="section-heading">
-          <p>01 / CONTROL</p>
+          <p>01 / 공수 관리</p>
           <h2>
             공수와 작업을
             <span>먼저 입력합니다.</span>
@@ -535,7 +531,7 @@ export default function Home() {
         <div className="control-grid">
           <aside className="crew-panel">
             <div className="panel-head">
-              <span>CREW</span>
+              <span>투입 인력</span>
               <b>내일 투입 기준</b>
             </div>
             <label className="field">
@@ -560,20 +556,16 @@ export default function Home() {
                 <span>등록 작업</span>
                 <strong>{tasks.length}</strong>
               </div>
-              <div>
-                <span>누적 투입</span>
-                <strong>{assignedCrew}</strong>
-              </div>
             </div>
-            <div className="worker-roster"><b>투입 인력 · 직무 / 숙련도</b>{workers.slice(0, totalCrew).map((worker) => (
-              <div key={worker.id}><span>{worker.name}</span><select value={worker.skill} onChange={(event) => { setWorkers((current) => current.map((item) => item.id === worker.id ? { ...item, skill: event.target.value as Skill } : item)); setAiAnalysis(null); }}><option value="mechanical">기계</option><option value="electrical">전기</option><option value="general">일반</option></select><select value={worker.level} onChange={(event) => { setWorkers((current) => current.map((item) => item.id === worker.id ? { ...item, level: Number(event.target.value) } : item)); setAiAnalysis(null); }}>{[1,2,3,4,5].map((level) => <option key={level} value={level}>숙련 {level}</option>)}</select></div>
+            <div className="worker-roster"><b>투입 인력 · 작업 역량</b>{workers.slice(0, totalCrew).map((worker) => (
+              <div key={worker.id}><span>{worker.name}</span><select value={worker.level} onChange={(event) => { setWorkers((current) => current.map((item) => item.id === worker.id ? { ...item, level: Number(event.target.value) } : item)); setAiAnalysis(null); }}>{[1,2,3,4,5].map((level) => <option key={level} value={level}>역량 {level}</option>)}</select></div>
             ))}</div>
           </aside>
 
           <form className="task-form" onSubmit={handleSubmit}>
             <div className="panel-head">
-              <span>ADD WORK</span>
-              <b>작업 등록</b>
+              <span>작업 등록</span>
+              <b>새 작업 입력</b>
             </div>
 
             <div className="form-grid">
@@ -643,15 +635,9 @@ export default function Home() {
                 </select>
               </label>
               <label className="field">
-                필요 직무
-                <select value={form.skill} onChange={(event) => setForm({ ...form, skill: event.target.value as Skill })}>
-                  <option value="mechanical">기계 정비</option><option value="electrical">전기 설비</option><option value="general">일반 작업</option>
-                </select>
-              </label>
-              <label className="field">
-                최소 숙련도
+                필요 역량
                 <select value={form.minSkill} onChange={(event) => setForm({ ...form, minSkill: Number(event.target.value) })}>
-                  {[1,2,3,4,5].map((level) => <option key={level} value={level}>숙련 {level} 이상</option>)}
+                  {[1,2,3,4,5].map((level) => <option key={level} value={level}>역량 {level} 이상</option>)}
                 </select>
               </label>
             </div>
@@ -672,7 +658,7 @@ export default function Home() {
 
       <section className="dispatch-section" id="dispatch">
         <div className="section-heading compact">
-          <p>02 / DISPATCH</p>
+          <p>02 / 작업 일정</p>
           <h2>
             내일의 작업을
             <span>안전하게 최적화합니다.</span>
@@ -681,7 +667,7 @@ export default function Home() {
 
         <div className="optimizer-overview">
           <div>
-            <p className="optimizer-eyebrow"><i /> AI SCHEDULE OPTIMIZER</p>
+            <p className="optimizer-eyebrow"><i /> AI 일정 최적화</p>
             <h3>
               {firstOutsideSlot ? (
                 <>내일은 <strong>{firstOutsideSlot.slot.time} 외부 작업</strong>부터<br />시작하는 것이 적합해요.</>
@@ -692,16 +678,18 @@ export default function Home() {
             <p>{aiAnalysis?.summary ?? '기상청 예보, 작업 우선순위와 필요 인원을 분석해 위험도가 낮은 순서로 배치했습니다.'}</p>
             {aiError && <p className="ai-error">AI 분석 연결 오류: {aiError}</p>}
           </div>
-          <div className="optimizer-metrics">
-            <div>
-              <small>외부 작업 권장 시작</small>
-              <strong>{firstOutsideSlot?.slot.time ?? '재검토'}</strong>
-              <b>{firstOutsideSlot ? `위험도 ${firstOutsideSlot.riskScore} · ${firstOutsideSlot.decision}` : '기상 조건 확인 필요'}</b>
-            </div>
-            <div>
-              <small>내일 분석 작업</small>
-              <strong>{schedule.length}<em>개</em></strong>
-              <b>총 예상 {schedule.reduce((sum, item) => sum + item.task.duration, 0)}시간</b>
+          <div className="optimizer-side">
+            <div className="optimizer-metrics">
+              <div>
+                <small>외부 작업 권장 시작</small>
+                <strong>{firstOutsideSlot?.slot.time ?? '재검토'}</strong>
+                <b>{firstOutsideSlot ? `위험도 ${firstOutsideSlot.riskScore} · ${firstOutsideSlot.decision}` : '기상 조건 확인 필요'}</b>
+              </div>
+              <div>
+                <small>내일 분석 작업</small>
+                <strong>{schedule.length}<em>개</em></strong>
+                <b>총 예상 {schedule.reduce((sum, item) => sum + item.task.duration, 0)}시간</b>
+              </div>
             </div>
             <button type="button" className="ai-refresh" onClick={requestAiSchedule} disabled={aiLoading}>
               <span>{aiLoading ? '내일 작업 일정을 분석하고 있습니다...' : aiAnalysis ? '내일 작업 일정 다시 만들기' : '내일 작업 일정 만들기'}</span><b aria-hidden="true">→</b>
@@ -721,7 +709,7 @@ export default function Home() {
           <div className="board-weather">
             <div><span>☀</span><strong>여수 {weatherSlots[0]?.temp ?? '-'}°</strong><small>내일 예보 · 강수 {weatherSlots.some((slot) => slot.rain > 0) ? '있음' : '없음'}</small></div>
             <div className="risk-legend"><i className="safe" /> 적합 <i className="watch" /> 주의 <i className="stop" /> 재검토</div>
-            <p><b>AI INSIGHT</b> {firstOutsideSlot ? `${firstOutsideSlot.slot.time}부터 외부 작업 진행이 가능한 것으로 분석됐습니다.` : '외부 작업은 내부 작업 이후 재검토를 권장합니다.'}</p>
+            <p><b>AI 안내</b> {firstOutsideSlot ? `${firstOutsideSlot.slot.time}부터 외부 작업 진행이 가능한 것으로 분석됐습니다.` : '외부 작업은 내부 작업 이후 재검토를 권장합니다.'}</p>
           </div>
 
           <div className="timeline-head">
@@ -742,7 +730,7 @@ export default function Home() {
                   <div className="timeline-task">
                     <span className="timeline-index">{String(index + 1).padStart(2, '0')}</span>
                     <span className={`location-pill ${item.task.location === 'outside' ? 'outdoor' : 'indoor'}`}>{item.task.location === 'outside' ? '외부' : '내부'}</span>
-                    <div><strong>{item.task.name}</strong><small>{item.task.target} · {item.task.requiredCrew}명 · {item.task.duration}시간 · {item.assignedWorkers.map((worker) => worker.name).join('·') || '배정 필요'}</small></div>
+                    <div><strong>{item.task.name}</strong><small>{item.task.target} · {item.task.requiredCrew}명 · {item.task.duration}시간 · {item.assignedWorkers.length === item.task.requiredCrew ? item.assignedWorkers.map((worker) => worker.name).join('·') : `배정 미완료 · ${item.task.requiredCrew - item.assignedWorkers.length}명 추가 필요`}</small></div>
                   </div>
                   <div className="timeline-track">
                     <span className="timeline-grid" />
@@ -782,8 +770,8 @@ export default function Home() {
                     <div>
                       <dt>작업 위험도</dt><dd className={decisionTone(selected.decision)}>{selected.riskScore}점 · {selected.decision}</dd>
                     </div>
-                    <div>
-                      <dt>배정 인력</dt><dd>{selected.assignedWorkers.length ? selected.assignedWorkers.map((worker) => `${worker.name}(${worker.level})`).join(' · ') : '배정 필요'}</dd>
+                    <div className="assigned-workers">
+                      <dt>배정 인력</dt><dd>{selected.assignedWorkers.length === selected.task.requiredCrew ? selected.assignedWorkers.map((worker) => worker.name).join(' · ') : `배정 미완료 · ${selected.task.requiredCrew - selected.assignedWorkers.length}명 추가 필요`}</dd>
                     </div>
                   </dl>
                   <div className="ai-reason"><div><span>AI 추천 이유</span><b>{selected.slot.time}–{selected.endTime} 배치</b></div><p>{selectedRecommendation}</p></div>
@@ -810,7 +798,7 @@ export default function Home() {
 
       <section className="weather-section" id="weather">
         <div className="section-heading compact">
-          <p>03 / WEATHER</p>
+          <p>03 / 기상 예보</p>
           <h2>
             내일 시간대별 예보를
             <span>작업 판단에 반영합니다.</span>

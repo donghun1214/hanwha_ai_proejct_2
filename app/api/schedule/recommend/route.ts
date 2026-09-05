@@ -11,7 +11,6 @@ type TaskInput = {
   requiredCrew: number;
   priority: number;
   detail: string;
-  skill: 'mechanical' | 'electrical' | 'general';
   minSkill: number;
 };
 
@@ -24,7 +23,7 @@ type WeatherSlotInput = {
   wind: number;
 };
 
-type WorkerInput = { id: number; name: string; skill: string; level: number };
+type WorkerInput = { id: number; name: string; level: number };
 
 const responseSchema = {
   type: 'object',
@@ -57,7 +56,6 @@ function isTask(value: unknown): value is TaskInput {
   const task = value as TaskInput;
   return typeof task.id === 'number' && typeof task.name === 'string' &&
     (task.location === 'outside' || task.location === 'inside') &&
-    (task.skill === 'mechanical' || task.skill === 'electrical' || task.skill === 'general') &&
     Number.isFinite(task.duration) && Number.isFinite(task.requiredCrew) && Number.isFinite(task.priority) && Number.isFinite(task.minSkill);
 }
 
@@ -70,7 +68,7 @@ function isWeatherSlot(value: unknown): value is WeatherSlotInput {
 function isWorker(value: unknown): value is WorkerInput {
   if (!value || typeof value !== 'object') return false;
   const worker = value as WorkerInput;
-  return typeof worker.id === 'number' && typeof worker.name === 'string' && typeof worker.skill === 'string' && Number.isFinite(worker.level);
+  return typeof worker.id === 'number' && typeof worker.name === 'string' && Number.isFinite(worker.level);
 }
 
 function outputText(payload: unknown) {
@@ -116,13 +114,13 @@ export async function POST(request: Request) {
       '당신은 한화에어로스페이스 여수 사업장의 현장 작업 일정 안전 분석가입니다.',
       '내일의 작업을 기상, 작업 위치, 위험도, 필요 인원, 작업시간, 우선순위를 함께 고려해 배치하세요.',
       '반드시 각 작업을 한 번씩만 배치하고, startTime은 제공된 기상 시간대 중 하나를 사용하세요.',
-      '동일 시간대에는 서로 다른 작업자를 배정할 수 있고, 총 가용 인원 및 직무·숙련도 조건을 충족하면 작업을 병렬 배치하세요.',
-      '각 작업에는 requiredCrew와 같은 수의 assignedWorkerIds를 넣고, 해당 작업의 직무와 최소 숙련도를 만족하는 작업자만 배정하세요. 동일 작업자를 시간이 겹치는 다른 작업에 배정하면 안 됩니다.',
+      '동일 시간대에는 서로 다른 작업자를 배정할 수 있고, 총 가용 인원 및 최소 작업 역량 조건을 충족하면 작업을 병렬 배치하세요.',
+      '각 작업에는 requiredCrew와 같은 수의 assignedWorkerIds를 넣고, 최소 작업 역량을 만족하는 작업자만 배정하세요. 동일 작업자를 시간이 겹치는 다른 작업에 배정하면 안 됩니다.',
       'endTime은 작업시간을 반영한 HH:MM 형식으로 작성하세요.',
       '외부 작업은 강수, 체감온도, 풍속이 높을수록 보수적으로 판단하고, 필요 인원이 총 가용 인원을 넘으면 중단 검토로 판단하세요.',
       'reason은 현장 작업자가 이해할 수 있는 한국어 한 문장으로, 기상·작업특성·인원·위험도 중 최소 세 가지 근거를 포함하세요.',
       `총 가용 인원: ${totalCrew}명`,
-      `작업자 숙련도·직무: ${JSON.stringify(workers)}`,
+      `작업자 작업 역량: ${JSON.stringify(workers)}`,
       `작업 목록: ${JSON.stringify(tasks)}`,
       `시간대별 기상: ${JSON.stringify(weatherSlots)}`,
     ].join('\n');
@@ -159,36 +157,36 @@ export async function POST(request: Request) {
     };
     const taskIds = new Set(tasks.map((task) => task.id));
     const slotTimes = new Set(weatherSlots.map((slot) => slot.time));
-    const workersById = new Map(workers.map((worker) => [worker.id, worker]));
     const taskById = new Map(tasks.map((task) => [task.id, task]));
     const valid = result.items.length === tasks.length && result.items.every((item) =>
       taskIds.has(item.taskId) && slotTimes.has(item.startTime) &&
       ['진행', '주의', '내부 우선', '중단 검토'].includes(item.decision) &&
-      Number.isFinite(item.riskScore) && item.riskScore >= 0 && item.riskScore <= 100 &&
-      Array.isArray(item.assignedWorkerIds) && item.assignedWorkerIds.length === taskById.get(item.taskId)?.requiredCrew &&
-      new Set(item.assignedWorkerIds).size === item.assignedWorkerIds.length &&
-      item.assignedWorkerIds.every((workerId) => {
-        const worker = workersById.get(workerId);
-        const task = taskById.get(item.taskId);
-        return Boolean(worker && task && (task.skill === 'general' || worker.skill === task.skill) && worker.level >= task.minSkill);
-      }),
+      Number.isFinite(item.riskScore) && item.riskScore >= 0 && item.riskScore <= 100,
     );
 
-    const hasWorkerOverlap = result.items.some((item, index) => result.items.slice(index + 1).some((other) => {
-      const task = taskById.get(item.taskId);
-      const otherTask = taskById.get(other.taskId);
-      const start = timeToMinutes(item.startTime);
-      const end = timeToMinutes(item.endTime);
-      const otherStart = timeToMinutes(other.startTime);
-      const otherEnd = timeToMinutes(other.endTime);
-      return Boolean(task && otherTask && Number.isFinite(start) && Number.isFinite(end) && Number.isFinite(otherStart) && Number.isFinite(otherEnd) && start < otherEnd && end > otherStart && item.assignedWorkerIds.some((workerId) => other.assignedWorkerIds.includes(workerId)));
-    }));
-
-    if (!valid || hasWorkerOverlap || new Set(result.items.map((item) => item.taskId)).size !== tasks.length) {
+    if (!valid || new Set(result.items.map((item) => item.taskId)).size !== tasks.length) {
       throw new Error('AI 응답이 작업 일정 형식에 맞지 않습니다. 다시 분석해주세요.');
     }
 
-    return NextResponse.json(result);
+    const bookings = new Map<number, Array<{ start: number; end: number }>>();
+    const repairedItems = [...result.items]
+      .sort((a, b) => a.startTime.localeCompare(b.startTime))
+      .map((item) => {
+        const task = taskById.get(item.taskId)!;
+        const start = timeToMinutes(item.startTime);
+        const end = Number.isFinite(timeToMinutes(item.endTime)) ? timeToMinutes(item.endTime) : start + task.duration * 60;
+        const assignedWorkers = workers
+          .filter((worker) => worker.level >= task.minSkill && !(bookings.get(worker.id) ?? []).some((booking) => start < booking.end && end > booking.start))
+          .sort((a, b) => b.level - a.level)
+          .slice(0, task.requiredCrew);
+        const fullyAssigned = assignedWorkers.length === task.requiredCrew;
+        if (fullyAssigned) {
+          assignedWorkers.forEach((worker) => bookings.set(worker.id, [...(bookings.get(worker.id) ?? []), { start, end }]));
+        }
+        return { ...item, decision: fullyAssigned ? item.decision : '중단 검토', assignedWorkerIds: assignedWorkers.map((worker) => worker.id) };
+      });
+
+    return NextResponse.json({ ...result, items: repairedItems });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'AI 일정 분석 중 오류가 발생했습니다.';
     return NextResponse.json({ message }, { status: 502 });
