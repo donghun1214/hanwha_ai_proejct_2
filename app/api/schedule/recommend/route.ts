@@ -25,44 +25,59 @@ type WeatherSlotInput = {
 
 type WorkerInput = { id: number; name: string; level: number };
 
-const responseSchema = {
+const itemSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['taskId', 'startTime', 'endTime', 'decision', 'riskScore', 'reason', 'assignedWorkerIds'],
+  properties: {
+    taskId: { type: 'number' },
+    startTime: { type: 'string' },
+    endTime: { type: 'string' },
+    decision: { type: 'string', enum: ['진행', '주의', '내부 우선', '중단 검토'] },
+    riskScore: { type: 'number', minimum: 0, maximum: 100 },
+    reason: { type: 'string' },
+    assignedWorkerIds: { type: 'array', items: { type: 'number' } },
+  },
+} as const;
+
+// Required task keys prevent omissions and duplicates; enums enforce actual forecast slots.
+function responseSchema(tasks: TaskInput[], slots: WeatherSlotInput[]) {
+  return {
   type: 'object',
   additionalProperties: false,
   required: ['summary', 'items'],
   properties: {
     summary: { type: 'string' },
     items: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['taskId', 'startTime', 'endTime', 'decision', 'riskScore', 'reason', 'assignedWorkerIds'],
+      type: 'object',
+      additionalProperties: false,
+      required: tasks.map((task) => String(task.id)),
+      properties: Object.fromEntries(tasks.map((task) => [String(task.id), {
+        ...itemSchema,
         properties: {
-          taskId: { type: 'number' },
-          startTime: { type: 'string' },
-          endTime: { type: 'string' },
-          decision: { type: 'string', enum: ['진행', '주의', '내부 우선', '중단 검토'] },
-          riskScore: { type: 'number' },
-          reason: { type: 'string' },
-          assignedWorkerIds: { type: 'array', items: { type: 'number' } },
+          ...itemSchema.properties,
+          taskId: { type: 'number', enum: [task.id] },
+          startTime: { type: 'string', enum: slots.filter((slot) => timeToMinutes(slot.time) + task.duration * 60 <= 1080).map((slot) => slot.time) },
         },
-      },
+      }])),
     },
   },
-} as const;
+  };
+}
 
 function isTask(value: unknown): value is TaskInput {
   if (!value || typeof value !== 'object') return false;
   const task = value as TaskInput;
   return typeof task.id === 'number' && typeof task.name === 'string' &&
     (task.location === 'outside' || task.location === 'inside') &&
-    Number.isFinite(task.duration) && Number.isFinite(task.requiredCrew) && Number.isFinite(task.priority) && Number.isFinite(task.minSkill);
+    Number.isFinite(task.duration) && task.duration > 0 && Number.isInteger(task.duration * 60) &&
+    Number.isInteger(task.requiredCrew) && task.requiredCrew > 0 && Number.isFinite(task.priority) && Number.isFinite(task.minSkill);
 }
 
 function isWeatherSlot(value: unknown): value is WeatherSlotInput {
   if (!value || typeof value !== 'object') return false;
   const slot = value as WeatherSlotInput;
-  return typeof slot.time === 'string' && [slot.temp, slot.feelsLike, slot.humidity, slot.rain, slot.wind].every(Number.isFinite);
+  return typeof slot.time === 'string' && Number.isFinite(timeToMinutes(slot.time)) && [slot.temp, slot.feelsLike, slot.humidity, slot.rain, slot.wind].every(Number.isFinite);
 }
 
 function isWorker(value: unknown): value is WorkerInput {
@@ -89,7 +104,7 @@ function outputText(payload: unknown) {
 
 function timeToMinutes(value: string) {
   const match = /^(\d{2}):(\d{2})$/.exec(value);
-  if (!match) return Number.NaN;
+  if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) return Number.NaN;
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
@@ -106,8 +121,15 @@ export async function POST(request: Request) {
     const workers = Array.isArray(body.workers) ? body.workers.filter(isWorker).slice(0, 30) : [];
     const totalCrew = typeof body.totalCrew === 'number' ? body.totalCrew : 0;
 
-    if (!tasks.length || !weatherSlots.length || totalCrew < 1 || !workers.length) {
+    if (!tasks.length || !weatherSlots.length || !Number.isInteger(totalCrew) || totalCrew < 1 || !workers.length) {
       return NextResponse.json({ message: 'AI 분석에 필요한 작업·기상·인원 정보가 부족합니다.' }, { status: 400 });
+    }
+
+    if (new Set(tasks.map((task) => task.id)).size !== tasks.length) {
+      return NextResponse.json({ message: '작업 번호가 중복되었습니다. 작업 목록을 확인해주세요.' }, { status: 400 });
+    }
+    if (tasks.some((task) => !weatherSlots.some((slot) => timeToMinutes(slot.time) + task.duration * 60 <= 1080))) {
+      return NextResponse.json({ message: '18시까지 완료할 수 없는 작업이 있습니다. 예상 작업시간을 확인해주세요.' }, { status: 400 });
     }
 
     const prompt = [
@@ -139,7 +161,7 @@ export async function POST(request: Request) {
             type: 'json_schema',
             name: 'work_schedule_recommendation',
             strict: true,
-            schema: responseSchema,
+            schema: responseSchema(tasks, weatherSlots),
           },
         },
       }),
@@ -151,21 +173,32 @@ export async function POST(request: Request) {
       throw new Error(payload.error?.message || 'AI 일정 분석 응답을 받지 못했습니다.');
     }
 
-    const result = JSON.parse(text) as {
+    const parsed = JSON.parse(text) as {
       summary: string;
-      items: Array<{ taskId: number; startTime: string; endTime: string; decision: string; riskScore: number; reason: string; assignedWorkerIds: number[] }>;
+      items: Record<string, { taskId: number; startTime: string; endTime: string; decision: string; riskScore: number; reason: string; assignedWorkerIds: number[] }>;
     };
+    if (!parsed || typeof parsed.summary !== 'string' || !parsed.items || typeof parsed.items !== 'object') {
+      throw new Error('AI 일정 응답에 요약 또는 작업 목록이 없습니다. 다시 분석해주세요.');
+    }
+    const result = { summary: parsed.summary, items: Object.values(parsed.items) };
     const taskIds = new Set(tasks.map((task) => task.id));
     const slotTimes = new Set(weatherSlots.map((slot) => slot.time));
     const taskById = new Map(tasks.map((task) => [task.id, task]));
-    const valid = result.items.length === tasks.length && result.items.every((item) =>
-      taskIds.has(item.taskId) && slotTimes.has(item.startTime) &&
-      ['진행', '주의', '내부 우선', '중단 검토'].includes(item.decision) &&
-      Number.isFinite(item.riskScore) && item.riskScore >= 0 && item.riskScore <= 100,
-    );
-
-    if (!valid || new Set(result.items.map((item) => item.taskId)).size !== tasks.length) {
-      throw new Error('AI 응답이 작업 일정 형식에 맞지 않습니다. 다시 분석해주세요.');
+    const issues: string[] = [];
+    if (result.items.length !== tasks.length) issues.push('작업 수 불일치');
+    for (const item of result.items) {
+      if (!item || !taskIds.has(item.taskId)) { issues.push('알 수 없는 작업 번호'); continue; }
+      if (typeof item.startTime === 'string') item.startTime = item.startTime.trim().replace(/^(\d):/, '0$1:');
+      if (!slotTimes.has(item.startTime)) issues.push(`작업 ${item.taskId}: 허용되지 않은 시작 시간`);
+      if (!['진행', '주의', '내부 우선', '중단 검토'].includes(item.decision)) issues.push(`작업 ${item.taskId}: 판단 값 오류`);
+      if (!Number.isFinite(item.riskScore) || item.riskScore < 0 || item.riskScore > 100) issues.push(`작업 ${item.taskId}: 위험 점수 범위 오류`);
+      if (typeof item.reason !== 'string' || !item.reason.trim()) issues.push(`작업 ${item.taskId}: 배치 근거 누락`);
+      if (timeToMinutes(item.startTime) + taskById.get(item.taskId)!.duration * 60 > 1080) issues.push(`작업 ${item.taskId}: 근무 종료 시간 초과`);
+    }
+    if (new Set(result.items.map((item) => item?.taskId)).size !== tasks.length) issues.push('작업 누락 또는 중복');
+    if (issues.length) {
+      console.warn('AI schedule validation failed', { issues });
+      throw new Error(`AI 일정 검증 실패: ${issues.join(', ')}. 다시 분석해주세요.`);
     }
 
     const bookings = new Map<number, Array<{ start: number; end: number }>>();
@@ -174,8 +207,9 @@ export async function POST(request: Request) {
       .map((item) => {
         const task = taskById.get(item.taskId)!;
         const start = timeToMinutes(item.startTime);
-        const end = Number.isFinite(timeToMinutes(item.endTime)) ? timeToMinutes(item.endTime) : start + task.duration * 60;
-        const assignedWorkers = workers
+        const end = start + task.duration * 60;
+        const endTime = `${String(Math.floor(end / 60)).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`;
+        const assignedWorkers = workers.slice(0, totalCrew)
           .filter((worker) => worker.level >= task.minSkill && !(bookings.get(worker.id) ?? []).some((booking) => start < booking.end && end > booking.start))
           .sort((a, b) => b.level - a.level)
           .slice(0, task.requiredCrew);
@@ -183,7 +217,7 @@ export async function POST(request: Request) {
         if (fullyAssigned) {
           assignedWorkers.forEach((worker) => bookings.set(worker.id, [...(bookings.get(worker.id) ?? []), { start, end }]));
         }
-        return { ...item, decision: fullyAssigned ? item.decision : '중단 검토', assignedWorkerIds: assignedWorkers.map((worker) => worker.id) };
+        return { ...item, endTime, decision: fullyAssigned ? item.decision : '중단 검토', assignedWorkerIds: fullyAssigned ? assignedWorkers.map((worker) => worker.id) : [] };
       });
 
     return NextResponse.json({ ...result, items: repairedItems });

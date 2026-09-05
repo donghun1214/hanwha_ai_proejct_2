@@ -329,6 +329,7 @@ a {
 .dispatch-panel,
 .selected-card,
 .rule-card,
+.schedule-email,
 .weather-card {
   border: 1px solid var(--line);
   background: var(--white);
@@ -1042,4 +1043,39 @@ a {
   *::after {
     transition: none !important;
   }
+}
+.schedule-email {
+  grid-column: 1 / -1;
+  min-width: 0;
+  align-self: start;
+  margin: 0;
+  padding: 20px 28px;
+  color: var(--ink);
+}
+.schedule-email h3, .schedule-email h4 {
+  color: var(--ink);
+  margin: 0 0 8px;
+  font-size: 25px;
+  line-height: 1.2;
+}
+.schedule-email h4 { font-size: 16px; }
+.schedule-email p, .schedule-email small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.schedule-email > button { margin-top: 14px; }
+.schedule-email > button + p, .schedule-email > p[role="status"]:not(:empty) { margin-top: 10px; }
+.schedule-email > p[role="status"]:empty { margin: 0; }
+.schedule-email form { display: grid; gap: 14px; margin-top: 18px; }
+.schedule-email label { display: grid; gap: 8px; color: #333; }
+.schedule-email input { padding: 12px; border: 1px solid #aaa; border-radius: 8px; background: #fff; color: #222; font: inherit; width: 100%; }
+.schedule-email pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; background: #f7f7f7; color: #333; padding: 18px; border-radius: 10px; font: inherit; line-height: 1.7; }
+.schedule-email button { justify-self: start; max-width: 100%; padding: 10px 16px; border-radius: 8px; background: #a63c00; color: #fff; border: 0; font: inherit; font-size: 13px; line-height: 1.5; font-weight: 700; cursor: pointer; }
+.schedule-email button:disabled { opacity: .55; cursor: not-allowed; }
+.schedule-email button:focus-visible, .schedule-email input:focus-visible { outline: 3px solid #c44800; outline-offset: 3px; }
+
+@media (max-width: 720px) {
+  .schedule-email { padding: 18px 22px; }
 }

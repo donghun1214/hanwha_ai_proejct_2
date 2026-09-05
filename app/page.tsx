@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ScheduleEmail } from './components/schedule-email';
 
 type LocationType = 'outside' | 'inside';
 type Decision = '진행' | '주의' | '내부 우선' | '중단 검토';
@@ -792,6 +793,11 @@ export default function Home() {
                 ))}
               </ul>
             </section>
+            <ScheduleEmail
+              disabled={!aiAnalysis || aiLoading || !forecastDate || Boolean(weatherError) || !schedule.length}
+              date={planDateLabel}
+              works={schedule}
+            />
           </aside>
         </div>
       </section>
