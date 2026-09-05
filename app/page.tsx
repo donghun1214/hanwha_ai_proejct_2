@@ -628,7 +628,7 @@ export default function Home() {
               <b>총 예상 {schedule.reduce((sum, item) => sum + item.task.duration, 0)}시간</b>
             </div>
             <button type="button" className="ai-refresh" onClick={requestAiSchedule} disabled={aiLoading}>
-              {aiLoading ? 'AI 분석 중...' : aiAnalysis ? 'AI 일정 다시 분석' : 'AI로 일정 분석'}
+              <span>{aiLoading ? '내일 작업 일정을 분석하고 있습니다...' : aiAnalysis ? '내일 작업 일정 다시 만들기' : '내일 작업 일정 만들기'}</span><b aria-hidden="true">→</b>
             </button>
           </div>
         </div>

@@ -504,7 +504,7 @@ a {
 .optimizer-metrics small, .optimizer-metrics b { color: rgba(255, 255, 255, 0.52); font-size: 11px; }
 .optimizer-metrics strong { font-size: 25px; line-height: 1; }
 .optimizer-metrics em { margin-left: 3px; color: var(--accent); font-size: 14px; font-style: normal; }
-.ai-refresh { grid-column: 1 / -1; border: 0; padding: 13px 18px; background: var(--accent); color: var(--white); font-size: 12px; font-weight: 900; transition: background 160ms ease; }.ai-refresh:hover:not(:disabled) { background: var(--accent-bright); }.ai-refresh:disabled { cursor: wait; opacity: .65; }
+.ai-refresh { grid-column: 1 / -1; display: flex; min-height: 56px; align-items: center; justify-content: space-between; border: 0; padding: 15px 20px; background: var(--accent); color: var(--white); font-size: 14px; font-weight: 900; text-align: left; transition: background 160ms ease, transform 160ms ease; }.ai-refresh b { font-size: 20px; line-height: 1; }.ai-refresh:hover:not(:disabled) { background: var(--accent-bright); transform: translateY(-1px); }.ai-refresh:disabled { cursor: wait; opacity: .65; }
 
 .schedule-board { overflow: hidden; background: #fff; color: var(--ink); }
 .board-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 24px 30px; border-bottom: 1px solid var(--line); }
