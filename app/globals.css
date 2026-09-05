@@ -1074,6 +1074,8 @@ a {
 .schedule-email pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; background: #f7f7f7; color: #333; padding: 18px; border-radius: 10px; font: inherit; line-height: 1.7; }
 .schedule-email button { justify-self: start; max-width: 100%; padding: 10px 16px; border-radius: 8px; background: #a63c00; color: #fff; border: 0; font: inherit; font-size: 13px; line-height: 1.5; font-weight: 700; cursor: pointer; }
 .schedule-email button:disabled { opacity: .55; cursor: not-allowed; }
+.schedule-email-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.schedule-email-actions small { color: #666; }
 .schedule-email button:focus-visible, .schedule-email input:focus-visible { outline: 3px solid #c44800; outline-offset: 3px; }
 
 @media (max-width: 720px) {
