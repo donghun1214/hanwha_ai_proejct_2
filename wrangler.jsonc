@@ -1,6 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hanwha-ai-proejct-2",
+  "keep_vars": true,
+  "secrets": {
+    "required": [
+      "OPENAI_API_KEY",
+      "KMA_SERVICE_KEY"
+    ]
+  },
   "compatibility_date": "2026-09-05",
   "compatibility_flags": [
     "nodejs_compat"
