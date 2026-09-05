@@ -414,6 +414,11 @@ a {
   line-height: 1;
 }
 
+.worker-roster { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.worker-roster > b { display: block; margin-bottom: 10px; color: var(--ink); font-size: 12px; }
+.worker-roster > div { display: grid; grid-template-columns: 1fr 64px 78px; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid #eeeae5; }
+.worker-roster span { font-size: 12px; font-weight: 800; }.worker-roster select { min-width: 0; border: 1px solid var(--line); border-radius: 6px; background: #fbfaf8; padding: 5px; color: var(--ink); font-size: 10px; }
+
 .primary-action,
 .secondary-action {
   width: 100%;
