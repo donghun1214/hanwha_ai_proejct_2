@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 type LocationType = 'outside' | 'inside';
 type Decision = '진행' | '주의' | '내부 우선' | '중단 검토';
@@ -33,6 +33,18 @@ type ScheduledTask = {
   riskScore: number;
   remainingCrew: number;
   reason: string;
+};
+
+type AiScheduleAnalysis = {
+  summary: string;
+  items: Array<{
+    taskId: number;
+    startTime: string;
+    endTime: string;
+    decision: Decision;
+    riskScore: number;
+    reason: string;
+  }>;
 };
 
 const initialTasks: Task[] = [
@@ -78,7 +90,7 @@ const initialTasks: Task[] = [
   },
 ];
 
-const weatherSlots: WeatherSlot[] = [
+const previewWeatherSlots: WeatherSlot[] = [
   { time: '09:00', temp: 28, feelsLike: 31, humidity: 68, rain: 0, wind: 2 },
   { time: '10:00', temp: 30, feelsLike: 33, humidity: 70, rain: 0, wind: 3 },
   { time: '11:00', temp: 31, feelsLike: 35, humidity: 74, rain: 0, wind: 4 },
@@ -147,7 +159,7 @@ function makeReason(task: Task, weather: WeatherSlot, decision: Decision) {
   return `체감온도 ${weather.feelsLike}도, 강수 ${weather.rain}mm로 외부 작업 중단 또는 시간 변경 검토가 필요합니다.`;
 }
 
-function createSchedule(tasks: Task[], totalCrew: number) {
+function createSchedule(tasks: Task[], totalCrew: number, weatherSlots: WeatherSlot[]) {
   const orderedTasks = [...tasks].sort((a, b) => a.priority - b.priority);
   const availableSlots = [...weatherSlots];
   const schedule: ScheduledTask[] = [];
@@ -206,10 +218,15 @@ function decisionTone(decision: Decision) {
   return 'tone-stop';
 }
 
-function priorityLabel(priority: number) {
-  if (priority === 1) return '높음';
-  if (priority === 2) return '보통';
-  return '낮음';
+function criterionState(value: number, safeLimit: number, watchLimit: number) {
+  if (value <= safeLimit) return { status: '적합', tone: 'safe' };
+  if (value <= watchLimit) return { status: '주의', tone: 'watch' };
+  return { status: '재검토', tone: 'stop' };
+}
+
+function timeToMinutes(time: string) {
+  const [hour, minute] = time.split(':').map(Number);
+  return hour * 60 + minute;
 }
 
 export default function Home() {
@@ -217,7 +234,71 @@ export default function Home() {
   const [totalCrew, setTotalCrew] = useState(12);
   const [form, setForm] = useState(emptyTask);
   const [selectedId, setSelectedId] = useState<number>(initialTasks[0].id);
-  const schedule = useMemo(() => createSchedule(tasks, totalCrew), [tasks, totalCrew]);
+  const [weatherSlots, setWeatherSlots] = useState<WeatherSlot[]>(previewWeatherSlots);
+  const [forecastDate, setForecastDate] = useState<string | null>(null);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<AiScheduleAnalysis | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTomorrowForecast() {
+      try {
+        const response = await fetch('/api/weather/tomorrow');
+        const data = (await response.json()) as {
+          forecastDate?: string;
+          message?: string;
+          slots?: WeatherSlot[];
+        };
+
+        if (!response.ok || !data.forecastDate || !data.slots?.length) {
+          throw new Error(data.message || '내일 예보를 불러오지 못했습니다.');
+        }
+
+        if (!cancelled) {
+          setWeatherSlots(data.slots);
+          setForecastDate(data.forecastDate);
+          setWeatherError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setWeatherError(error instanceof Error ? error.message : '내일 예보를 불러오지 못했습니다.');
+        }
+      }
+    }
+
+    loadTomorrowForecast();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const ruleSchedule = useMemo(
+    () => createSchedule(tasks, totalCrew, weatherSlots),
+    [tasks, totalCrew, weatherSlots],
+  );
+  const schedule = useMemo(() => {
+    if (!aiAnalysis) return ruleSchedule;
+
+    const recommendations = new Map(aiAnalysis.items.map((item) => [item.taskId, item]));
+    return ruleSchedule
+      .map((item) => {
+        const recommendation = recommendations.get(item.task.id);
+        const slot = recommendation ? weatherSlots.find((weather) => weather.time === recommendation.startTime) : undefined;
+        if (!recommendation || !slot) return item;
+        return {
+          ...item,
+          slot,
+          endTime: recommendation.endTime,
+          decision: recommendation.decision,
+          riskScore: recommendation.riskScore,
+          reason: recommendation.reason,
+        };
+      })
+      .sort((a, b) => a.slot.time.localeCompare(b.slot.time));
+  }, [aiAnalysis, ruleSchedule, weatherSlots]);
   const selected = schedule.find((item) => item.task.id === selectedId) ?? schedule[0];
   const assignedCrew = schedule.reduce((sum, item) => sum + item.task.requiredCrew, 0);
   const outsideBlocked = schedule.filter(
@@ -229,6 +310,73 @@ export default function Home() {
   const hottestSlot = weatherSlots.reduce((max, slot) =>
     slot.feelsLike > max.feelsLike ? slot : max,
   );
+  const planDateLabel = forecastDate
+    ? new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' }).format(
+        new Date(`${forecastDate.slice(0, 4)}-${forecastDate.slice(4, 6)}-${forecastDate.slice(6, 8)}T00:00:00`),
+      )
+    : '내일';
+  const selectedCriteria = selected
+    ? [
+        {
+          label: '체감온도',
+          value: `${selected.slot.feelsLike}°C`,
+          ...criterionState(selected.slot.feelsLike, 30, 35),
+        },
+        {
+          label: '강수',
+          value: `${selected.slot.rain}mm`,
+          ...criterionState(selected.slot.rain, 0, 4),
+        },
+        {
+          label: '풍속',
+          value: `${selected.slot.wind}m/s`,
+          ...criterionState(selected.slot.wind, 6, 8),
+        },
+        {
+          label: '가용 인원',
+          value: `${totalCrew} / ${selected.task.requiredCrew}명`,
+          ...(totalCrew >= selected.task.requiredCrew
+            ? { tone: 'safe', status: '충분' }
+            : { tone: 'stop', status: '부족' }),
+        },
+        {
+          label: '작업 위험도',
+          value: `${selected.riskScore}점`,
+          ...(selected.riskScore < 30
+            ? { tone: 'safe', status: '적합' }
+            : selected.riskScore < 50
+              ? { tone: 'watch', status: '주의' }
+              : { tone: 'stop', status: '재검토' }),
+        },
+      ]
+    : [];
+  const selectedRecommendation = selected
+    ? aiAnalysis
+      ? selected.reason
+      : `${selected.slot.time}–${selected.endTime}은 체감온도 ${selected.slot.feelsLike}°C, 강수 ${selected.slot.rain}mm, 풍속 ${selected.slot.wind}m/s 조건입니다. ${selected.task.location === 'outside' ? '외부 작업이 가능한 기상 조건과' : '기상 영향이 낮은 내부 작업 특성과'} ${selected.task.requiredCrew}명 인력 확보, 예상 ${selected.task.duration}시간의 작업시간, 위험도 ${selected.riskScore}점을 함께 분석해 이 시간대를 추천했습니다.`
+    : '';
+
+  async function requestAiSchedule() {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const response = await fetch('/api/schedule/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tasks, weatherSlots, totalCrew }),
+      });
+      const data = (await response.json()) as AiScheduleAnalysis & { message?: string };
+      if (!response.ok || !data.items?.length) {
+        throw new Error(data.message || 'AI 일정 분석을 완료하지 못했습니다.');
+      }
+      setAiAnalysis(data);
+    } catch (error) {
+      setAiAnalysis(null);
+      setAiError(error instanceof Error ? error.message : 'AI 일정 분석을 완료하지 못했습니다.');
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -248,24 +396,26 @@ export default function Home() {
     setTasks((current) => [...current, nextTask]);
     setSelectedId(nextTask.id);
     setForm(emptyTask);
+    setAiAnalysis(null);
   }
 
   function removeTask(id: number) {
     setTasks((current) => current.filter((task) => task.id !== id));
+    setAiAnalysis(null);
   }
 
   return (
     <main className="site-shell">
       <header className="global-header">
         <a className="brand" href="#top" aria-label="Hanwha field scheduler">
-          <img src="/hanwha-logo.jpg" alt="Hanwha" />
+          <img className="brand-logo" src="/image2.png" alt="Hanwha" />
         </a>
         <nav className="global-nav" aria-label="주요 화면">
-          <a href="#crew">공수</a>
-          <a href="#dispatch">일정</a>
-          <a href="#weather">기상</a>
+          <a href="#crew">공수 관리</a>
+          <a href="#dispatch">작업 일정</a>
+          <a href="#weather">기상 예보</a>
         </nav>
-        <a className="hub-link" href="#dispatch">오늘 일정 보기</a>
+        <a className="hub-link" href="#dispatch">내일 일정 보기</a>
       </header>
 
       <section className="hero" id="top">
@@ -273,17 +423,17 @@ export default function Home() {
           <p className="kicker">FIELD WORKFORCE CONTROL</p>
           <h1>
             현장 공수와 날씨를 보고
-            <span>오늘 작업 순서를 결정합니다.</span>
+            <span>내일 작업 순서를 결정합니다.</span>
           </h1>
           <p>
-            10~12명 규모의 현장직 투입 인원, 외부/내부 작업 구분, 체감온도 35도 기준,
-            강수 여부를 함께 판단해 현장에 전달할 작업 순서를 만듭니다.
+            한화에어로스페이스 여수 사업장의 내일 예보와 현장 공수를 함께 판단해,
+            작업자에게 전달할 작업 순서를 만듭니다.
           </p>
         </div>
 
-        <div className="hero-board" aria-label="오늘 작업 요약">
+        <div className="hero-board" aria-label="내일 작업 요약">
           <div className="hero-board-head">
-            <span>LIVE PLAN</span>
+            <span>TOMORROW PLAN · {planDateLabel}</span>
             <b>{schedule.length} WORKS</b>
           </div>
           <div className="hero-metrics">
@@ -325,7 +475,7 @@ export default function Home() {
           <aside className="crew-panel">
             <div className="panel-head">
               <span>CREW</span>
-              <b>10~12명 기준</b>
+              <b>내일 투입 기준</b>
             </div>
             <label className="field">
               작업 가능 인원
@@ -334,7 +484,10 @@ export default function Home() {
                 min={1}
                 max={20}
                 value={totalCrew}
-                onChange={(event) => setTotalCrew(Number(event.target.value))}
+                onChange={(event) => {
+                  setTotalCrew(Number(event.target.value));
+                  setAiAnalysis(null);
+                }}
               />
             </label>
             <div className="crew-stats">
@@ -445,100 +598,117 @@ export default function Home() {
         <div className="section-heading compact">
           <p>02 / DISPATCH</p>
           <h2>
-            현장직에게 전달할
-            <span>작업 순서입니다.</span>
+            내일의 작업을
+            <span>안전하게 최적화합니다.</span>
           </h2>
         </div>
 
-        <div className="dispatch-layout">
-          <section className="dispatch-panel">
-            <div className="panel-head dark">
-              <span>TODAY PLAN</span>
-              <b>행 기반 작업 패널</b>
+        <div className="optimizer-overview">
+          <div>
+            <p className="optimizer-eyebrow"><i /> AI SCHEDULE OPTIMIZER</p>
+            <h3>
+              {firstOutsideSlot ? (
+                <>내일은 <strong>{firstOutsideSlot.slot.time} 외부 작업</strong>부터<br />시작하는 것이 적합해요.</>
+              ) : (
+                <>내일은 <strong>내부 작업</strong>을 먼저<br />진행하는 것이 안전해요.</>
+              )}
+            </h3>
+            <p>{aiAnalysis?.summary ?? '기상청 예보, 작업 우선순위와 필요 인원을 분석해 위험도가 낮은 순서로 배치했습니다.'}</p>
+            {aiError && <p className="ai-error">AI 분석 연결 오류: {aiError}</p>}
+          </div>
+          <div className="optimizer-metrics">
+            <div>
+              <small>외부 작업 권장 시작</small>
+              <strong>{firstOutsideSlot?.slot.time ?? '재검토'}</strong>
+              <b>{firstOutsideSlot ? `위험도 ${firstOutsideSlot.riskScore} · ${firstOutsideSlot.decision}` : '기상 조건 확인 필요'}</b>
             </div>
-
-            <div className="dispatch-header-row">
-              <span>순번</span>
-              <span>시간</span>
-              <span>작업 정보</span>
-              <span>공수</span>
-              <span>기상</span>
-              <span>판단</span>
+            <div>
+              <small>내일 분석 작업</small>
+              <strong>{schedule.length}<em>개</em></strong>
+              <b>총 예상 {schedule.reduce((sum, item) => sum + item.task.duration, 0)}시간</b>
             </div>
+            <button type="button" className="ai-refresh" onClick={requestAiSchedule} disabled={aiLoading}>
+              {aiLoading ? 'AI 분석 중...' : aiAnalysis ? 'AI 일정 다시 분석' : 'AI로 일정 분석'}
+            </button>
+          </div>
+        </div>
 
-            <div className="dispatch-row-list">
-              {schedule.map((item, index) => (
-                <button
-                  key={item.task.id}
-                  className={`dispatch-row ${selected?.task.id === item.task.id ? 'is-selected' : ''}`}
-                  onClick={() => setSelectedId(item.task.id)}
-                >
-                  <span className="dispatch-index">{String(index + 1).padStart(2, '0')}</span>
+        <section className="schedule-board" aria-label="내일의 AI 추천 작업 보드">
+          <div className="board-toolbar">
+            <div>
+              <span className="board-status"><i /> AI 추천 일정</span>
+              <h3>{planDateLabel} 작업 보드</h3>
+            </div>
+            <div className="board-toolbar-meta"><span>한화에어로스페이스 여수 사업장</span><b>내일 일정</b></div>
+          </div>
 
-                  <div className="dispatch-time">
-                    <strong>{item.slot.time}</strong>
-                    <small>{item.endTime} 종료</small>
+          <div className="board-weather">
+            <div><span>☀</span><strong>여수 {weatherSlots[0]?.temp ?? '-'}°</strong><small>내일 예보 · 강수 {weatherSlots.some((slot) => slot.rain > 0) ? '있음' : '없음'}</small></div>
+            <div className="risk-legend"><i className="safe" /> 적합 <i className="watch" /> 주의 <i className="stop" /> 재검토</div>
+            <p><b>AI INSIGHT</b> {firstOutsideSlot ? `${firstOutsideSlot.slot.time}부터 외부 작업 진행이 가능한 것으로 분석됐습니다.` : '외부 작업은 내부 작업 이후 재검토를 권장합니다.'}</p>
+          </div>
+
+          <div className="timeline-head">
+            <div>작업 목록 <span>{schedule.length}개</span></div>
+            <div className="timeline-hours"><span>09:00</span><span>11:00</span><span>13:00</span><span>15:00</span><span>17:00</span><span>18:00</span></div>
+            <div>판단</div>
+          </div>
+
+          <div className="timeline-list">
+            {schedule.map((item, index) => {
+              const start = timeToMinutes(item.slot.time);
+              const end = timeToMinutes(item.endTime);
+              const left = Math.max(0, ((start - 540) / 540) * 100);
+              const width = Math.min(100 - left, Math.max(8, ((end - start) / 540) * 100));
+
+              return (
+                <button type="button" key={item.task.id} className={`timeline-row ${selected?.task.id === item.task.id ? 'is-selected' : ''}`} onClick={() => setSelectedId(item.task.id)} aria-pressed={selected?.task.id === item.task.id}>
+                  <div className="timeline-task">
+                    <span className="timeline-index">{String(index + 1).padStart(2, '0')}</span>
+                    <span className={`location-pill ${item.task.location === 'outside' ? 'outdoor' : 'indoor'}`}>{item.task.location === 'outside' ? '외부' : '내부'}</span>
+                    <div><strong>{item.task.name}</strong><small>{item.task.target} · {item.task.requiredCrew}명 · {item.task.duration}시간</small></div>
                   </div>
-
-                  <div className="dispatch-work">
-                    <div className="work-title-line">
-                      <strong>{item.task.name}</strong>
-                      <span>{item.task.location === 'outside' ? '외부' : '내부'}</span>
-                    </div>
-                    <small>{item.task.target}</small>
-                    <p>{item.reason}</p>
+                  <div className="timeline-track">
+                    <span className="timeline-grid" />
+                    <span className={`timeline-bar ${item.task.location === 'inside' ? 'bar-indoor' : `bar-${item.decision === '진행' ? 'safe' : item.decision === '주의' ? 'watch' : 'stop'}`}`} style={{ left: `${left}%`, width: `${width}%` }}><b>{item.slot.time}–{item.endTime}</b></span>
                   </div>
-
-                  <div className="dispatch-crew">
-                    <strong>{item.task.requiredCrew}명</strong>
-                    <small>남는 인원 {Math.max(0, item.remainingCrew)}명</small>
-                  </div>
-
-                  <div className="dispatch-weather">
-                    <strong>{item.slot.feelsLike}도</strong>
-                    <small>비 {item.slot.rain}mm · 바람 {item.slot.wind}m/s</small>
-                  </div>
-
-                  <div className="dispatch-decision">
-                    <b className={decisionTone(item.decision)}>{item.decision}</b>
-                    <small>위험 {item.riskScore}</small>
-                  </div>
+                  <div className={`timeline-state ${decisionTone(item.decision)}`}><b>{item.decision}</b><small>위험 {item.riskScore}</small></div>
                 </button>
-              ))}
-            </div>
-          </section>
+              );
+            })}
+          </div>
+          <div className="board-footer"><span>기상청 단기예보 기준 · 여수 사업장</span><span>작업을 선택하면 상세 내용을 확인할 수 있습니다.</span></div>
+        </section>
 
+        <div className="dispatch-layout">
           <aside className="detail-stack">
             <section className="selected-card">
-              <div className="panel-head">
-                <span>SELECTED WORK</span>
-                <b>{selected ? priorityLabel(selected.task.priority) : '-'}</b>
-              </div>
               {selected ? (
                 <>
-                  <h3>{selected.task.name}</h3>
-                  <p>{selected.task.detail}</p>
-                  <dl>
+                  <div className="selected-summary">
                     <div>
-                      <dt>작업 장소</dt>
-                      <dd>{selected.task.location === 'outside' ? '외부' : '내부'}</dd>
+                      <span className="detail-kicker">선택 작업 상세</span>
+                      <h3>{selected.task.name}</h3>
+                      <p>{selected.task.detail}</p>
+                    </div>
+                    <div className="selected-time"><span>AI 추천 시간</span><strong>{selected.slot.time}–{selected.endTime}</strong></div>
+                  </div>
+                  <dl className="detail-metrics">
+                    <div>
+                      <dt>작업 장소</dt><dd>{selected.task.location === 'outside' ? '외부' : '내부'} · {selected.task.target}</dd>
                     </div>
                     <div>
-                      <dt>필요 인원</dt>
-                      <dd>{selected.task.requiredCrew}명</dd>
+                      <dt>예상 작업시간</dt><dd>{selected.task.duration}시간</dd>
                     </div>
                     <div>
-                      <dt>남는 인원</dt>
-                      <dd>{Math.max(0, selected.remainingCrew)}명</dd>
+                      <dt>필요 / 가용 인원</dt><dd>{selected.task.requiredCrew}명 / {totalCrew}명</dd>
                     </div>
                     <div>
-                      <dt>위험 점수</dt>
-                      <dd>{selected.riskScore}</dd>
+                      <dt>작업 위험도</dt><dd className={decisionTone(selected.decision)}>{selected.riskScore}점 · {selected.decision}</dd>
                     </div>
                   </dl>
-                  <button className="secondary-action" onClick={() => removeTask(selected.task.id)}>
-                    선택 작업 삭제
-                  </button>
+                  <div className="ai-reason"><div><span>AI 추천 이유</span><b>{selected.slot.time}–{selected.endTime} 배치</b></div><p>{selectedRecommendation}</p></div>
+                  <button type="button" className="remove-task" onClick={() => removeTask(selected.task.id)}>선택 작업 삭제</button>
                 </>
               ) : (
                 <p>등록된 작업이 없습니다.</p>
@@ -546,23 +716,13 @@ export default function Home() {
             </section>
 
             <section className="rule-card">
-              <div className="panel-head">
-                <span>STANDARD</span>
-                <b>판단 기준</b>
-              </div>
-              <ul>
-                <li>
-                  <span>체감온도</span>
-                  <strong>35도 이상 주의</strong>
-                </li>
-                <li>
-                  <span>강수 발생</span>
-                  <strong>내부 작업 우선</strong>
-                </li>
-                <li>
-                  <span>외부 작업</span>
-                  <strong>시간대 재배치</strong>
-                </li>
+              <div className="rule-heading"><h3>작업 판단 기준</h3><p>현재 선택된 작업의 조건 충족 여부입니다.</p></div>
+              <ul className="criteria-list">
+                {selectedCriteria.map((criterion) => (
+                  <li key={criterion.label}>
+                    <span>{criterion.label}</span><strong>{criterion.value}</strong><b className={`criterion-status ${criterion.tone}`}>{criterion.status}</b>
+                  </li>
+                ))}
               </ul>
             </section>
           </aside>
@@ -573,10 +733,19 @@ export default function Home() {
         <div className="section-heading compact">
           <p>03 / WEATHER</p>
           <h2>
-            시간대별 기상 조건을
+            내일 시간대별 예보를
             <span>작업 판단에 반영합니다.</span>
           </h2>
         </div>
+
+        <p className={`weather-status${weatherError ? ' is-error' : ''}`}>
+          {weatherError
+            ? `기상청 예보 연결 오류: ${weatherError} (표시값은 미리보기입니다.)`
+            : `기상청 단기예보 · 한화에어로스페이스 여수 사업장 · ${planDateLabel}`}
+        </p>
+        <p className="weather-source">
+          기상 정보 제공: 기상청 「단기예보 조회서비스」 · 공공데이터포털
+        </p>
 
         <div className="weather-grid">
           {weatherSlots.map((slot) => (
