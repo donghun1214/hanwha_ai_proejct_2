@@ -56,7 +56,7 @@
 
 사용한 도구: ChatGPT Codex
 
-AI 도구: SOLAPI(번호 연동 전 단계), OpenAI API, 기상청 데이터
+AI·자동화 도구: OpenAI API, SOLAPI 문자 발송 기능(발신번호 인증 단계 보류)
 
 ## 5. AI·자동화 흐름
 
